@@ -1,4 +1,4 @@
-from itertools import combinations
+from itertools import combinations, tee
 import re
 import pandas as pd
 
@@ -64,32 +64,46 @@ class Abbreviator:
                    , 'i_score': phrase_scores[i+1]
                    , 'j_score': phrase_scores[j+1] }
     
-    def make_abbreviations_dataframe(self, input_filepath):
-        originals = []
-        
-        scores_df = pd.DataFrame(data={'original_phrase': [], 'abbreviation':[], 'i_score':[], 'j_score':[]})
+    def input_as_dict(self, input_phrases):
+        for p in input_phrases:
+            yield {'input_val': p}
+    
+    def input_to_df_rows(self, input_phrases):
+        for p in input_phrases:
+            for r in self.generate_abbreviations_rows(p):
+                yield r
+
+    def ingest_file(self, input_filepath):
         with open(input_filepath) as f:
             for line in f:
-                originals.append(line.strip())
-                scores_df = pd.concat([scores_df, pd.DataFrame(self.generate_abbreviations_rows(line.strip()))])
-        
+                yield line.strip()
+
+    def process_dfs(self, originals_df, scores_df):
+
         scores_df['score'] = scores_df['i_score'] + scores_df['j_score']
+
+        number_phrases_with_abb = scores_df.groupby('abbreviation')['original_phrase'].transform('nunique').copy()
+        scores_df = scores_df[number_phrases_with_abb == 1]
         
-        scores_df['number_phrases_with_abb'] = scores_df.groupby('abbreviation')['original_phrase'].transform('nunique')
-        
-        scores_df = scores_df[scores_df['number_phrases_with_abb'] == 1]
-        
-        scores_df['abbreviation_rank'] = scores_df.groupby('original_phrase')['score'].transform('rank', method='min')
-        scores_df = scores_df[scores_df['abbreviation_rank']==1]
+        abbreviation_rank = scores_df.groupby('original_phrase')['score'].transform('rank', method='min').copy()
+        scores_df = scores_df[abbreviation_rank==1]
         
         scores_df.drop_duplicates(['original_phrase', 'abbreviation'], inplace=True)
         
         scores_df = scores_df.groupby('original_phrase')['abbreviation'].agg(lambda x: " ".join(x))
-        originals_df = pd.DataFrame(data={'input_val': originals})
+
         originals_df.drop_duplicates(inplace=True)
         
-        return_df = originals_df.merge(scores_df, how='left', left_on='input_val', right_index=True)
+        return originals_df.merge(scores_df, how='left', left_on='input_val', right_index=True)
+    
+    def make_abbreviations_dataframe(self, input_filepath):
         
-        return_df.fillna(" ", inplace=True)
-        
-        return return_df
+        input_data = self.ingest_file(input_filepath)
+
+        input_1, input_2 = tee(input_data)
+
+        scores_df = pd.DataFrame(self.input_to_df_rows(input_1))
+        originals_df = pd.DataFrame(self.input_as_dict(input_2))
+
+        output_df = self.process_dfs(originals_df, scores_df)
+        return output_df
