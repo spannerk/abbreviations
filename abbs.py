@@ -12,18 +12,33 @@ class Abbreviator:
     
     
     def standardise_phrase(self, phrase):
+
+        # Apostrophes (') should be ignored completely
         new_phrase = re.sub("\'", "", phrase)
+
+        # Any other sequences of non-letter characters are also ignored, 
+        # but split the name into separate words.
         new_phrase = re.sub("\W", " ", new_phrase)
         new_phrase = re.sub(" {2,}", " ", new_phrase)
+
+        # The abbreviations will consist entirely of upper case letters, so for the purpose of
+        # finding the abbreviations all the letters can be regarded as upper case.
         new_phrase = new_phrase.upper()
         return new_phrase
     
     
     def position_scores_per_letter(self, word):
         n = len(word)
+
+        # If a letter is the first letter of a word in the name then it has score 0.
+        # If a letter is neither the first nor last letter of a word, then its score is the sum of
+        # a position value, which is 1 for the second letter of a word, 2 for the third letter
+        # and 3 for any other position
+        position_values = [0] + [min(3, i) for i in range(1, n-1)]
         
-        position_values = [0] + list(range(1, n-1))
-        
+
+        # e, if a letter is the last letter of a word in the name then it has score 5,
+        # unless the letter is E, in which case the score is 20
         if n == 1:
             return position_values
         elif n==0:
@@ -34,8 +49,17 @@ class Abbreviator:
             return position_values + [5]
         
     def letter_scores_per_letter(self, word):
+
+        # If a letter is neither the first nor last letter of a word, then its score is the sum of
+        # a position value, (...), plus a value based on how common/uncommon
+        # this letter is in English: 1 for Q,Z, 3 for J,X, 6 for K, 7 for F,H,V,W,Y, 8 for
+        # B,C,M,P, 9 for D,G, 15 for L,N,R,S,T, 20 for O,U, 25 for A,I and 35 for E. A
+        # list of the values is in the file values.txt.
+
         if len(word) > 1:
             return [0] + [int(self.letter_values[l]) for l in word[1:-1]] + [0]
+        elif len(word)==0:
+            return []
         else:
             return [0]
     
@@ -51,6 +75,10 @@ class Abbreviator:
         return re.sub(' ', '', phrase)
                 
     def abbreviations_indicies(self, n):
+        # Each abbreviation consists of the first letter of the name (you can assume that
+        # the first character will always be a letter) followed by two further letters from the
+        # name, in order.
+
         return combinations(range(0, n-1), 2)
     
     def generate_abbreviations_rows(self, original_phrase):
@@ -81,10 +109,12 @@ class Abbreviator:
 
     def process_dfs(self, originals_df, scores_df):
 
-        # add together the second and third letter scores to get a score for the abbreviation
+        # The score for an abbreviation is the sum of scores for its second and third letters
         scores_df['score'] = scores_df['i_score'] + scores_df['j_score']
 
-        # only keep abbreviations that are only applied to a single phrase
+        # Any abbreviation which can be formed from more than one name on the list is excluded.
+        # copy is used here to avoid trying to filter the dataframe based on transformations
+        # of itself, see SettingWithCopy warning
         number_phrases_with_abb = scores_df.groupby('abbreviation')['original_phrase'].transform('nunique').copy()
         scores_df = scores_df[number_phrases_with_abb == 1]
         
